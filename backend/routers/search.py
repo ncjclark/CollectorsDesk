@@ -234,7 +234,7 @@ async def search(req: SearchRequest, db: Session = Depends(get_db)):
         condition_breakdown=json.dumps(ebay_stats["condition_breakdown"]),
         last_sold_date=last_sold_dt,
         raw_sold_listings=json.dumps(ebay_sold),
-        source="mock" if not bool(__import__("config").settings.ebay_app_id) else "ebay",
+        source="ebay",
         sources_data=json.dumps(sources_data),
     )
     db.add(record)

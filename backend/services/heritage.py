@@ -1,18 +1,11 @@
 """
 Heritage Auctions — realized (sold) auction prices.
 
-Heritage is the largest collectibles auctioneer in the US.
-Valuable for:
-- Rare/high-value Barbies (mint condition, #1 ponytails, NRFB pieces)
-- Establishing ceiling prices for exceptional items
-- Understanding what serious collectors actually pay at auction
-
 No API key needed — scrapes their public realized-price search.
-Mock mode is used as fallback when scraping fails or for development.
+Returns empty list if the scrape fails (Heritage sometimes blocks bots).
 """
 
 import re
-import random
 import httpx
 from bs4 import BeautifulSoup
 
@@ -28,12 +21,9 @@ HEADERS = {
 
 async def search_heritage(query: str, max_results: int = 30) -> list[dict]:
     try:
-        results = await _scrape_heritage(query, max_results)
-        if results:
-            return results
+        return await _scrape_heritage(query, max_results)
     except Exception:
-        pass
-    return _mock_heritage(query)
+        return []
 
 
 async def _scrape_heritage(query: str, max_results: int) -> list[dict]:
@@ -127,61 +117,6 @@ def _parse_price(text: str) -> float | None:
         return val if val > 0 else None
     except ValueError:
         return None
-
-
-def _mock_heritage(query: str) -> list[dict]:
-    """
-    Heritage prices are higher than eBay — auction house, serious collectors.
-    Rare pieces get dramatically higher prices here.
-    """
-    q = query.lower()
-    rng = random.Random((hash(q) + 99) % (2**32))
-
-    if any(k in q for k in ["#1", "1959", "ponytail", "number one"]):
-        base, spread = 1200, 800
-        count = rng.randint(3, 10)
-    elif any(k in q for k in ["1960", "1961", "1962", "bubblecut", "bubble cut"]):
-        base, spread = 350, 200
-        count = rng.randint(4, 12)
-    elif any(k in q for k in ["francie", "stacey", "casey"]):
-        base, spread = 180, 120
-        count = rng.randint(2, 8)
-    elif any(k in q for k in ["malibu", "superstar", "mod"]):
-        base, spread = 75, 50
-        count = rng.randint(3, 10)
-    elif any(k in q for k in ["barbie", "doll", "mattel"]):
-        base, spread = 120, 80
-        count = rng.randint(3, 12)
-    else:
-        # Board games rarely appear at Heritage
-        return []
-
-    years = list(range(2018, 2025))
-    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-    conditions = ["Near Mint", "Excellent", "Very Fine", "Fine", "Good"]
-    cond_weights = [0.15, 0.30, 0.30, 0.15, 0.10]
-    cond_mult = {"Near Mint": 1.5, "Excellent": 1.1, "Very Fine": 0.9, "Fine": 0.7, "Good": 0.5}
-
-    results = []
-    for i in range(count):
-        cond = rng.choices(conditions, weights=cond_weights, k=1)[0]
-        price = max(25.0, round((base + rng.uniform(-spread * 0.4, spread * 0.6)) * cond_mult[cond], 2))
-        yr = rng.choice(years)
-        mo = rng.choice(months)
-        lot_num = rng.randint(10000, 99999)
-
-        results.append({
-            "title": f"{query.title()} — {cond} — Heritage Auctions Lot #{lot_num}",
-            "price": price,
-            "sale_date": f"{mo} {yr}",
-            "url": f"https://www.ha.com/itm/mock-{lot_num}",
-            "image_url": None,
-            "auction_house": "Heritage Auctions",
-            "listing_type": "auction_realized",
-        })
-
-    return sorted(results, key=lambda x: x["price"], reverse=True)
 
 
 def compute_heritage_stats(listings: list[dict]) -> dict:

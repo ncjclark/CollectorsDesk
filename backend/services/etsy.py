@@ -1,72 +1,19 @@
 """
 Etsy API service — active vintage listings.
 
-Etsy is valuable because:
-- Large community of dedicated vintage Barbie/doll sellers
-- Prices reflect true collector market (often higher than casual eBay buyers)
-- Active listings show current asking prices across many specialist sellers
-
-Setup: get a free API key at https://developers.etsy.com/
-Add ETSY_API_KEY to .env
-
-Mock mode auto-enables when ETSY_API_KEY is empty.
+Requires ETSY_API_KEY in .env (get a free key at developers.etsy.com).
+Returns empty list until key is configured — Etsy tab will show setup prompt.
 """
 
 import asyncio
-import random
 import httpx
 from config import settings
 
 
 async def search_etsy_listings(query: str, max_results: int = 50) -> list[dict]:
     if not settings.etsy_api_key:
-        return _mock_etsy(query)
+        return []
     return await _real_etsy(query, max_results)
-
-
-def _mock_etsy(query: str) -> list[dict]:
-    q = query.lower()
-    rng = random.Random((hash(q) + 42) % (2**32))
-
-    # Etsy prices tend to be 15–40% higher than eBay — collector premium
-    if any(k in q for k in ["ponytail", "#1", "1959", "1960", "1961"]):
-        base, spread = 380, 200
-    elif any(k in q for k in ["bubblecut", "bubble cut", "francie", "stacey"]):
-        base, spread = 95, 60
-    elif any(k in q for k in ["malibu", "mod", "twist"]):
-        base, spread = 65, 40
-    elif any(k in q for k in ["barbie", "doll", "mattel", "ken", "skipper"]):
-        base, spread = 42, 30
-    else:
-        base, spread = 35, 25
-
-    count = rng.randint(8, 28)
-    conditions = ["NRFB", "Mint", "Excellent", "Very Good", "Good", "Fair"]
-    cond_weights = [0.05, 0.10, 0.25, 0.30, 0.20, 0.10]
-    cond_multipliers = {"NRFB": 1.8, "Mint": 1.4, "Excellent": 1.1, "Very Good": 0.9, "Good": 0.7, "Fair": 0.45}
-
-    results = []
-    shops = ["VintageDollHouse", "CollectorsCorner", "RetroToybox", "DollMemories",
-             "ClassicBarbieFan", "VintageMattelShop", "DollsAndDreams", "TimeCapsuleToys"]
-
-    for i in range(count):
-        cond = rng.choices(conditions, weights=cond_weights, k=1)[0]
-        mult = cond_multipliers[cond]
-        price = max(4.99, round((base + rng.uniform(-spread * 0.4, spread * 0.7)) * mult, 2))
-        shop = rng.choice(shops)
-
-        results.append({
-            "title": f"{query.title()} — {cond} Condition — Vintage Collectible",
-            "price": price,
-            "condition": cond,
-            "url": f"https://www.etsy.com/listing/mock-{abs(hash(query+str(i))) % 9999999:07d}",
-            "image_url": None,
-            "shop_name": shop,
-            "currency": "USD",
-            "listing_type": "active",
-        })
-
-    return sorted(results, key=lambda x: x["price"])
 
 
 async def _real_etsy(query: str, max_results: int) -> list[dict]:

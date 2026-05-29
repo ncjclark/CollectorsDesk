@@ -190,7 +190,7 @@ async def research_item(item_id: int, db: Session = Depends(get_db)):
         condition_breakdown=json.dumps(stats["condition_breakdown"]),
         last_sold_date=last_sold_dt,
         raw_sold_listings=json.dumps(sold_listings),
-        source="mock" if not bool(__import__("config").settings.ebay_app_id) else "ebay",
+        source="ebay",
         linked_item_id=item_id,
     )
     db.add(record)

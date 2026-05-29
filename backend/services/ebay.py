@@ -1,25 +1,23 @@
 """
-eBay API service.
+eBay service — scrapes eBay's public search pages, no API key required.
 
-Currently runs in MOCK mode — returns realistic sample data so the UI can be
-fully developed and tested before eBay developer credentials are approved.
-
-When credentials arrive:
-  1. Fill in EBAY_APP_ID, EBAY_CERT_ID, EBAY_DEV_ID in .env
-  2. Set EBAY_MOCK_MODE=false in .env (or remove the env var)
-  3. Nothing else changes — callers use the same function signatures
-
-Mock mode is auto-enabled when EBAY_APP_ID is empty.
+Mode selection (checked in order):
+  1. EBAY_MOCK_MODE=true  → always use generated mock data (for offline dev)
+  2. EBAY_APP_ID set      → use official eBay API
+  3. (default)            → scrape eBay public search pages
 """
 
 import asyncio
 import base64
 import json
+import os
+import re
 import random
 import statistics
 from datetime import datetime, timedelta
 from typing import Optional
 import httpx
+from bs4 import BeautifulSoup
 
 from config import settings
 
@@ -35,7 +33,9 @@ async def search_sold_listings(
     """Return a list of sold eBay listings for the query."""
     if _use_mock():
         return _mock_sold_listings(query, days_back)
-    return await _real_sold_listings(query, days_back, max_results)
+    if _use_api():
+        return await _real_sold_listings(query, days_back, max_results)
+    return await _scrape_sold_listings(query, max_results)
 
 
 async def search_active_listings(
@@ -45,7 +45,9 @@ async def search_active_listings(
     """Return a list of active (currently for sale) eBay listings."""
     if _use_mock():
         return _mock_active_listings(query)
-    return await _real_active_listings(query, max_results)
+    if _use_api():
+        return await _real_active_listings(query, max_results)
+    return await _scrape_active_listings(query, max_results)
 
 
 async def search_unsold_listings(
@@ -56,7 +58,9 @@ async def search_unsold_listings(
     """Return completed eBay listings that did NOT sell — shows price ceiling."""
     if _use_mock():
         return _mock_unsold_listings(query, days_back)
-    return await _real_unsold_listings(query, days_back, max_results)
+    if _use_api():
+        return await _real_unsold_listings(query, days_back, max_results)
+    return await _scrape_unsold_listings(query, max_results)
 
 
 def compute_unsold_stats(listings: list[dict]) -> dict:
@@ -138,7 +142,10 @@ def compute_price_stats(sold_listings: list[dict], days_back: int = 90) -> dict:
 # ---------------------------------------------------------------------------
 
 def _use_mock() -> bool:
-    return not bool(settings.ebay_app_id)
+    return os.environ.get("EBAY_MOCK_MODE", "").lower() == "true"
+
+def _use_api() -> bool:
+    return bool(settings.ebay_app_id)
 
 
 # Realistic seed data keyed by keywords in the search query
@@ -281,7 +288,153 @@ def _mock_unsold_listings(query: str, days_back: int) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Real eBay implementation (activated once API keys are in .env)
+# Scraper implementation (default when no API key is configured)
+# ---------------------------------------------------------------------------
+
+_SCRAPE_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Cache-Control": "max-age=0",
+}
+
+
+def _parse_price(text: str) -> float | None:
+    m = re.search(r'\$([0-9,]+\.?\d*)', text)
+    if m:
+        try:
+            return float(m.group(1).replace(",", ""))
+        except ValueError:
+            pass
+    return None
+
+
+def _parse_ebay_date(text: str) -> str | None:
+    text = re.sub(r'^(Sold|Ended?)\s*', '', text.strip(), flags=re.IGNORECASE).strip()
+    for fmt in ("%b %d, %Y", "%B %d, %Y", "%m/%d/%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, fmt).strftime("%Y-%m-%dT%H:%M:%S")
+        except ValueError:
+            continue
+    return None
+
+
+_PLAYWRIGHT_BROWSER = None  # module-level reuse across searches in one process
+
+_EBAY_JS_EXTRACT = """(unsoldOnly) => {
+    const cards = document.querySelectorAll("li.s-card");
+    const results = [];
+    for (const card of cards) {
+        const titleEl = card.querySelector("[class*=title]") || card.querySelector("h3");
+        if (!titleEl) continue;
+        const title = titleEl.textContent.trim().replace(/^New Listing\\s*/i, "");
+        if (!title || title.toLowerCase() === "shop on ebay") continue;
+
+        const priceEl = card.querySelector("[class*=price]");
+        if (!priceEl) continue;
+        const priceText = priceEl.textContent.trim();
+        const priceMatch = priceText.match(/\\$([0-9,]+\\.?\\d*)/);
+        if (!priceMatch) continue;
+        const price = parseFloat(priceMatch[1].replace(/,/g, ""));
+        if (!price) continue;
+
+        const linkEl = card.querySelector("a[href*='ebay.com/itm']");
+        const url = linkEl ? linkEl.href : "";
+
+        const fullText = card.innerText || "";
+        // Sold/ended date is typically the first line
+        const soldMatch = fullText.match(/^(Sold|Ended)\\s+([A-Za-z]+ \\d+,? \\d{4})/m);
+        const isSold = soldMatch && soldMatch[1].toLowerCase() === "sold";
+        const dateStr = soldMatch ? soldMatch[2] : null;
+
+        if (unsoldOnly && isSold) continue;
+        if (!unsoldOnly && soldMatch && !isSold) continue;  // skip unsold from sold search
+
+        const condMatch = fullText.match(/Pre-Owned|Brand New|Open Box|For Parts|Refurbished|Used|Not Specified/i);
+        const condition = condMatch ? condMatch[0] : "Used";
+
+        results.push({ title, price, url, condition, dateStr });
+    }
+    return results;
+}"""
+
+
+async def _ebay_page(params: dict) -> list[dict]:
+    """Launch headless Chrome, load eBay search, extract listings from live DOM."""
+    from playwright.async_api import async_playwright
+    from urllib.parse import urlencode
+
+    url = "https://www.ebay.com/sch/i.html?" + urlencode(params)
+    unsold_only = params.get("_unsold_only", False)
+
+    async with async_playwright() as pw:
+        browser = await pw.chromium.launch(
+            headless=True,
+            channel="chrome",
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        context = await browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            )
+        )
+        await context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        )
+        page = await context.new_page()
+        await page.goto("https://www.ebay.com", wait_until="domcontentloaded", timeout=15000)
+        await asyncio.sleep(1)
+        await page.goto(url, wait_until="domcontentloaded", timeout=25000)
+        await asyncio.sleep(6)
+        raw = await page.evaluate(_EBAY_JS_EXTRACT, unsold_only)
+        await browser.close()
+
+    now = datetime.utcnow()
+    results = []
+    for item in raw:
+        end_time = _parse_ebay_date(item["dateStr"]) if item["dateStr"] else now.strftime("%Y-%m-%dT%H:%M:%S")
+        results.append({
+            "title": item["title"],
+            "price": item["price"],
+            "end_time": end_time,
+            "condition": item["condition"],
+            "url": item["url"],
+            "image_url": None,
+        })
+    return results
+
+
+async def _scrape_sold_listings(query: str, max_results: int) -> list[dict]:
+    items = await _ebay_page({"_nkw": query, "LH_Sold": "1", "LH_Complete": "1", "_sacat": "0", "_ipg": "60"})
+    return items[:max_results]
+
+
+async def _scrape_active_listings(query: str, max_results: int) -> list[dict]:
+    items = await _ebay_page({"_nkw": query, "_sacat": "0", "_ipg": "60"})
+    for item in items:
+        item.setdefault("watch_count", 0)
+    return items[:max_results]
+
+
+async def _scrape_unsold_listings(query: str, max_results: int) -> list[dict]:
+    items = await _ebay_page({"_nkw": query, "LH_Complete": "1", "_sacat": "0", "_ipg": "60", "_unsold_only": True})
+    return items[:max_results]
+
+
+# ---------------------------------------------------------------------------
+# Real eBay API implementation (activated when EBAY_APP_ID is set in .env)
 # ---------------------------------------------------------------------------
 
 _oauth_cache: dict = {}  # {token: str, expires_at: datetime}

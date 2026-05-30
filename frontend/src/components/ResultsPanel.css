@@ -354,6 +354,15 @@
   font-weight: 600;
   border-bottom: 1px solid var(--border);
 }
+.sortable-th {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.sortable-th:hover { color: var(--text); }
+.sort-active { color: var(--accent) !important; }
+.sort-arrow { font-size: 9px; opacity: 0.6; margin-left: 2px; }
+.sort-active .sort-arrow { opacity: 1; }
 .sold-table td {
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);

@@ -76,7 +76,6 @@ const TYPE_LABELS = {
 
 export default function ResultsPanel({ results, onSaveToInventory }) {
   const [activeTab, setActiveTab] = useState('ebay')
-  const [showAll, setShowAll] = useState(false)
 
   if (!results) return null
 
@@ -92,7 +91,6 @@ export default function ResultsPanel({ results, onSaveToInventory }) {
   const hasBgg       = sources.bgg?.found && sources.bgg?.marketplace_stats?.count > 0
   const anyData = hasEbayData || hasEtsyData || hasHeritage || hasBgg
   const demand = demandLabel(stats.count_30d, active_listing_count)
-  const visible = showAll ? sold_listings : sold_listings.slice(0, 20)
 
   // Derived insights
   const unsoldCount = sources.ebay_unsold?.count || 0
@@ -350,11 +348,9 @@ export default function ResultsPanel({ results, onSaveToInventory }) {
                   )}
 
                   <ListingsTable
-                    listings={visible}
+                    listings={sold_listings}
                     cols={['title', 'condition', 'price', 'date']}
-                    onShowMore={() => setShowAll(v => !v)}
-                    showMoreLabel={showAll ? 'Show fewer' : `Show all ${sold_listings.length}`}
-                    showMoreVisible={sold_listings.length > 20}
+                    initialSort={{ col: 'date', dir: 'desc' }}
                   />
 
                   {sources.ebay_unsold?.count > 0 && (
@@ -540,8 +536,73 @@ export default function ResultsPanel({ results, onSaveToInventory }) {
 }
 
 
-function ListingsTable({ listings, cols, onShowMore, showMoreLabel, showMoreVisible, typeLabel }) {
+function sortListings(listings, col, dir) {
+  if (!col) return listings
+  return [...listings].sort((a, b) => {
+    let av, bv
+    if (col === 'price') {
+      av = a.price ?? -Infinity
+      bv = b.price ?? -Infinity
+    } else if (col === 'date') {
+      const parse = item => {
+        const s = item.sale_date || item.end_time
+        if (!s) return 0
+        const d = new Date(s)
+        return isNaN(d) ? 0 : d.getTime()
+      }
+      av = parse(a); bv = parse(b)
+    } else if (col === 'condition') {
+      av = (a.condition || '').toLowerCase()
+      bv = (b.condition || '').toLowerCase()
+    } else if (col === 'title') {
+      av = (a.title || '').toLowerCase()
+      bv = (b.title || '').toLowerCase()
+    } else if (col === 'shop') {
+      av = (a.shop_name || '').toLowerCase()
+      bv = (b.shop_name || '').toLowerCase()
+    } else {
+      return 0
+    }
+    if (av < bv) return dir === 'asc' ? -1 : 1
+    if (av > bv) return dir === 'asc' ? 1 : -1
+    return 0
+  })
+}
+
+function SortTh({ col, label, sortCol, sortDir, onSort }) {
+  const active = sortCol === col
+  return (
+    <th className={`sortable-th ${active ? 'sort-active' : ''}`} onClick={() => onSort(col)}>
+      {label}
+      <span className="sort-arrow">
+        {active ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ' ⇅'}
+      </span>
+    </th>
+  )
+}
+
+function ListingsTable({ listings, cols, typeLabel, initialSort = null }) {
+  const [sortCol, setSortCol] = useState(initialSort?.col || null)
+  const [sortDir, setSortDir] = useState(initialSort?.dir || 'desc')
+  const [showAll, setShowAll] = useState(false)
+
   if (!listings?.length) return null
+
+  function handleSort(col) {
+    if (sortCol === col) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortCol(col)
+      setSortDir(col === 'title' || col === 'condition' || col === 'shop' ? 'asc' : 'desc')
+    }
+    setShowAll(false)
+  }
+
+  const sorted = sortListings(listings, sortCol, sortDir)
+  const visible = showAll ? sorted : sorted.slice(0, 20)
+  const canShowMore = listings.length > 20
+
+  const thProps = col => ({ col, sortCol, sortDir, onSort: handleSort })
 
   return (
     <div className="card sold-table-wrap">
@@ -553,15 +614,15 @@ function ListingsTable({ listings, cols, onShowMore, showMoreLabel, showMoreVisi
       <table className="sold-table">
         <thead>
           <tr>
-            {cols.includes('title')     && <th>Title</th>}
-            {cols.includes('condition') && <th>Condition</th>}
-            {cols.includes('price')     && <th>Price</th>}
-            {cols.includes('date')      && <th>Date</th>}
-            {cols.includes('shop')      && <th>Shop</th>}
+            {cols.includes('title')     && <SortTh label="Title"     {...thProps('title')} />}
+            {cols.includes('condition') && <SortTh label="Condition" {...thProps('condition')} />}
+            {cols.includes('price')     && <SortTh label="Price"     {...thProps('price')} />}
+            {cols.includes('date')      && <SortTh label="Date"      {...thProps('date')} />}
+            {cols.includes('shop')      && <SortTh label="Shop"      {...thProps('shop')} />}
           </tr>
         </thead>
         <tbody>
-          {listings.map((item, i) => (
+          {visible.map((item, i) => (
             <tr key={i}>
               {cols.includes('title') && (
                 <td className="listing-title">
@@ -586,8 +647,10 @@ function ListingsTable({ listings, cols, onShowMore, showMoreLabel, showMoreVisi
           ))}
         </tbody>
       </table>
-      {showMoreVisible && (
-        <button className="btn-ghost show-more" onClick={onShowMore}>{showMoreLabel}</button>
+      {canShowMore && (
+        <button className="btn-ghost show-more" onClick={() => setShowAll(v => !v)}>
+          {showAll ? 'Show fewer' : `Show all ${listings.length}`}
+        </button>
       )}
     </div>
   )

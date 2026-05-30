@@ -25,29 +25,40 @@ def _normalize_query(q: str) -> str:
 
 def _clean_query_for_search(q: str) -> str:
     """
-    Strip barcode-name noise that confuses eBay:
+    Strip barcode-name noise that confuses eBay/Etsy:
     - Text inside parentheses, e.g. "(angel of peace)" → "angel of peace"
     - "by: brand" / "by brand" attribution fragments
-    - Edition/series suffixes that aren't searchable keywords
-    - Excessive punctuation: dashes, colons, slashes used as separators
+    - Separator punctuation: dashes, colons, slashes used as separators
+    - Preserve #NNNN model/stock numbers — Etsy sellers use them
     - Truncate to 80 chars so eBay doesn't reject the query
     """
     import re
     q = q.strip()
+    # Protect model numbers like #24240 before stripping punctuation
+    q = re.sub(r'#(\d+)', r'MODEL\1', q)
     # Unwrap parentheses — keep the content, drop the parens
     q = re.sub(r'\(([^)]*)\)', r' \1 ', q)
     # Remove "by: something" or "by something" attribution at end
     q = re.sub(r'\bby\s*:?\s*\w[\w\s]*$', '', q, flags=re.IGNORECASE)
     # Remove standalone punctuation used as separators
     q = re.sub(r'\s[-–—/|]\s', ' ', q)
-    # Remove remaining colons and excessive punctuation
-    q = re.sub(r'[:\'"#&]', ' ', q)
+    # Remove remaining special chars (but not digits already labeled)
+    q = re.sub(r'[:\'"&]', ' ', q)
+    # Restore model numbers
+    q = re.sub(r'MODEL(\d+)', r'#\1', q)
     # Collapse whitespace
     q = ' '.join(q.split())
     # Truncate to ~80 chars at a word boundary
     if len(q) > 80:
         q = q[:80].rsplit(' ', 1)[0]
     return q.strip()
+
+
+def _extract_model_number(text: str) -> str | None:
+    """Pull a catalog/stock number like #24240 from a barcode product name."""
+    import re
+    m = re.search(r'#(\d{4,6})', text)
+    return m.group(1) if m else None
 
 
 _STOP = {

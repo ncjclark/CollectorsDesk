@@ -95,6 +95,15 @@
 }
 .barcode-source-label { color: var(--text-muted); }
 .barcode-source-name { color: var(--text); font-weight: 500; }
+.barcode-source-model {
+  font-family: monospace;
+  font-size: 11px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: var(--text-muted);
+}
 .barcode-source-via { color: var(--text-muted); margin-left: auto; font-size: 11px; }
 
 /* Fallback banners */

@@ -93,18 +93,24 @@ export default function Research() {
       if (!resp.ok) throw new Error(`Search failed: ${resp.status}`)
       const data = await resp.json()
 
-      if (data.stats.count_90d === 0 && !isFallback) {
-        // Auto-broaden: drop last word if query has >2 words
+      // Only auto-broaden when every source is empty — don't fire a second
+      // request just because eBay is 0 while Etsy/Heritage/BGG has data.
+      const noDataAnywhere = data.stats.count_90d === 0
+        && !(data.sources?.etsy?.count > 0)
+        && !(data.sources?.heritage?.count > 0)
+        && !data.sources?.bgg?.found
+
+      if (noDataAnywhere && !isFallback) {
         const words = params.query.trim().split(/\s+/)
         if (words.length > 2) {
           setFallbackState({ step: 'broadened', originalQuery: params.query })
           const broadened = words.slice(0, -1).join(' ')
-          setResults(data) // show empty result first
+          setResults(data)
           await handleSearch({ ...params, query: broadened }, true)
           return
         }
         setFallbackState({ step: 'manual', originalQuery: params.query })
-      } else if (isFallback && data.stats.count_90d === 0) {
+      } else if (isFallback && noDataAnywhere) {
         setFallbackState({ step: 'manual', originalQuery: fallbackState?.originalQuery || params.query })
       } else {
         setFallbackState(null)
@@ -132,8 +138,12 @@ export default function Research() {
       const data = await resp.json()
       if (data.found && data.name) {
         setBarcode('')
-        setBarcodeSource({ name: data.name, source: data.source })
-        handleSearch({ query: data.name, category: null, days_back: 90 })
+        setBarcodeSource({ name: data.name, source: data.source, model: data.model_number })
+        // Append model/stock number to query when available — helps Etsy matching
+        const query = data.model_number
+          ? `${data.name} #${data.model_number}`
+          : data.name
+        handleSearch({ query, category: null, days_back: 90 })
       } else {
         setBarcodeError('Barcode not found in database. Try searching by name.')
       }
@@ -186,6 +196,9 @@ export default function Research() {
             <div className="barcode-source-row">
               <span className="barcode-source-label">Identified as</span>
               <span className="barcode-source-name">"{barcodeSource.name}"</span>
+              {barcodeSource.model && (
+                <span className="barcode-source-model">#{barcodeSource.model}</span>
+              )}
               <span className="barcode-source-via">
                 via {SOURCE_LABELS[barcodeSource.source] || barcodeSource.source}
               </span>

@@ -10,9 +10,9 @@ from database import get_db, PriceResearchCache, SearchHistory
 from models.schemas import SearchRequest, SearchResponse, PriceStats, SoldListing
 from services.ebay import (
     search_sold_listings, search_active_listings, search_unsold_listings,
-    compute_price_stats, compute_unsold_stats,
+    compute_price_stats, compute_unsold_stats, ScraperBlocked as EbayBlocked,
 )
-from services.etsy import search_etsy_listings, compute_etsy_stats
+from services.etsy import search_etsy_listings, compute_etsy_stats, ScraperBlocked as EtsyBlocked
 from services.heritage import search_heritage, compute_heritage_stats
 from services.bgg import search_bgg
 
@@ -62,7 +62,7 @@ def _get_cached(db: Session, query: str, ttl_hours: int) -> PriceResearchCache |
     )
 
 
-def _build_response(record: PriceResearchCache, from_cache: bool) -> dict:
+def _build_response(record: PriceResearchCache, from_cache: bool, source_errors: dict | None = None) -> dict:
     raw = json.loads(record.raw_sold_listings or "[]")
     cond = json.loads(record.condition_breakdown or "{}")
     sources = json.loads(record.sources_data or "{}") if record.sources_data else {}
@@ -86,6 +86,7 @@ def _build_response(record: PriceResearchCache, from_cache: bool) -> dict:
         "sold_listings": raw[:100],
         "sources": sources,
         "combined": _build_combined(record, sources),
+        "source_errors": source_errors or {},
     }
 
 
@@ -192,7 +193,18 @@ async def search(req: SearchRequest, db: Session = Depends(get_db)):
         return_exceptions=True,
     )
 
-    # Handle any failed fetches gracefully
+    # Detect rate-limiting / bot-detection per source
+    source_errors: dict[str, str] = {}
+    if isinstance(ebay_sold, EbayBlocked) or isinstance(ebay_active, EbayBlocked) or isinstance(ebay_unsold, EbayBlocked):
+        source_errors["ebay"] = "rate_limited"
+    elif not isinstance(ebay_sold, list):
+        source_errors["ebay"] = "error"
+    if isinstance(etsy_listings, EtsyBlocked):
+        source_errors["etsy"] = "rate_limited"
+    elif not isinstance(etsy_listings, list):
+        source_errors["etsy"] = "error"
+
+    # Fall back to empty lists for any failed source
     ebay_sold        = ebay_sold        if isinstance(ebay_sold, list) else []
     ebay_active      = ebay_active      if isinstance(ebay_active, list) else []
     ebay_unsold      = ebay_unsold      if isinstance(ebay_unsold, list) else []
@@ -265,12 +277,15 @@ async def search(req: SearchRequest, db: Session = Depends(get_db)):
         source="ebay",
         sources_data=json.dumps(sources_data),
     )
-    db.add(record)
-    db.commit()
-    db.refresh(record)
 
-    _log_history(db, normalized, req.category, ebay_stats["count_90d"], ebay_stats["avg"])
-    return _build_response(record, from_cache=False)
+    # Don't cache when eBay was blocked — a retry should hit live data
+    if "ebay" not in source_errors:
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+        _log_history(db, normalized, req.category, ebay_stats["count_90d"], ebay_stats["avg"])
+
+    return _build_response(record, from_cache=False, source_errors=source_errors)
 
 
 def _log_history(db: Session, query: str, category: str | None, count: int, avg: float | None):

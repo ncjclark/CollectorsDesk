@@ -55,6 +55,13 @@ function fmtDate(isoStr) {
   return new Date(isoStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+const SOURCE_NAMES = {
+  ebay: 'eBay',
+  etsy: 'Etsy',
+  heritage: 'Heritage Auctions',
+  bgg: 'BoardGameGeek',
+}
+
 const RELIABILITY_COLORS = {
   high: 'var(--green)',
   medium: 'var(--yellow)',
@@ -82,7 +89,7 @@ export default function ResultsPanel({ results, onSaveToInventory }) {
   const {
     query, from_cache, fetched_at, stats, active_listing_count,
     condition_breakdown, last_sold_date, sold_listings,
-    sources = {}, combined = {},
+    sources = {}, combined = {}, source_errors = {},
   } = results
 
   const hasEbayData  = stats.count_90d > 0
@@ -131,11 +138,27 @@ export default function ResultsPanel({ results, onSaveToInventory }) {
         )}
       </div>
 
+      {/* Rate-limit / error banners */}
+      {Object.entries(source_errors).map(([src, status]) => (
+        <div key={src} className={`source-error-banner ${status}`}>
+          <span className="source-error-icon">{status === 'rate_limited' ? '⏱' : '⚠'}</span>
+          <span className="source-error-msg">
+            {status === 'rate_limited'
+              ? <><strong>{SOURCE_NAMES[src] || src}</strong> rate-limited this request — bot detection was triggered. Results may be incomplete. Wait a minute and search again to retry.</>
+              : <><strong>{SOURCE_NAMES[src] || src}</strong> returned an error this search. Results may be incomplete.</>
+            }
+          </span>
+        </div>
+      ))}
+
       {!anyData ? (
         <div className="no-results card">
           <div className="no-results-icon">🔍</div>
           <h3>No data found across any source</h3>
-          <p>Try fewer words or a broader search term. For very obscure items, use the photo ID feature.</p>
+          {source_errors.ebay === 'rate_limited'
+            ? <p>eBay blocked this search. Wait 1–2 minutes and try again — the result won't be cached so a retry will hit live data.</p>
+            : <p>Try fewer words or a broader search term.</p>
+          }
         </div>
       ) : (
         <>

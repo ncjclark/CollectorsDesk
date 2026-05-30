@@ -11,6 +11,10 @@ import httpx
 from config import settings
 
 
+class ScraperBlocked(Exception):
+    """Etsy triggered bot-detection / rate-limiting on this request."""
+
+
 async def search_etsy_listings(query: str, max_results: int = 50) -> list[dict]:
     if settings.etsy_api_key:
         return await _real_etsy(query, max_results)
@@ -126,6 +130,8 @@ _ETSY_JS_EXTRACT = """() => {
 async def _scrape_etsy(query: str) -> list[dict]:
     try:
         return await _do_scrape(query)
+    except ScraperBlocked:
+        raise  # let the caller see it
     except Exception:
         return []
 
@@ -164,6 +170,22 @@ async def _do_scrape(query: str) -> list[dict]:
         await asyncio.sleep(5)
 
         raw = await page.evaluate(_ETSY_JS_EXTRACT)
+
+        if not raw:
+            page_title = await page.title()
+            body_snippet = await page.evaluate(
+                "() => document.body.innerText.substring(0, 600)"
+            )
+            combined_text = (page_title + " " + body_snippet).lower()
+            _BLOCK_SIGNALS = [
+                "robot", "captcha", "verify", "unusual traffic",
+                "access denied", "are you a human", "please verify", "blocked",
+                "security check",
+            ]
+            if any(sig in combined_text for sig in _BLOCK_SIGNALS):
+                await browser.close()
+                raise ScraperBlocked("Etsy bot-detection triggered")
+
         await browser.close()
 
     results = []

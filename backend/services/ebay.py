@@ -17,6 +17,10 @@ import httpx
 from config import settings
 
 
+class ScraperBlocked(Exception):
+    """eBay triggered bot-detection / rate-limiting on this request."""
+
+
 # ---------------------------------------------------------------------------
 # Public interface
 # ---------------------------------------------------------------------------
@@ -209,6 +213,23 @@ async def _ebay_page(params: dict) -> list[dict]:
         await page.goto(url, wait_until="domcontentloaded", timeout=25000)
         await asyncio.sleep(6)
         raw = await page.evaluate(_EBAY_JS_EXTRACT, unsold_only)
+
+        if not raw:
+            # Distinguish a genuine zero-results page from bot-detection
+            page_title = await page.title()
+            body_snippet = await page.evaluate(
+                "() => document.body.innerText.substring(0, 800)"
+            )
+            combined_text = (page_title + " " + body_snippet).lower()
+            _BLOCK_SIGNALS = [
+                "robot", "captcha", "verify", "unusual traffic",
+                "security measure", "access denied", "are you a human",
+                "please verify", "blocked",
+            ]
+            if any(sig in combined_text for sig in _BLOCK_SIGNALS):
+                await browser.close()
+                raise ScraperBlocked("eBay bot-detection triggered")
+
         await browser.close()
 
     now = datetime.utcnow()

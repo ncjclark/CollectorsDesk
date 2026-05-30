@@ -10,7 +10,6 @@ const CATEGORIES = [
 export default function SaveItemModal({ query, prefill = {}, onClose, onSaved }) {
   const [form, setForm] = useState({
     name: query || '',
-    ...prefill,
     category: '',
     year: '',
     model_number: '',
@@ -18,6 +17,7 @@ export default function SaveItemModal({ query, prefill = {}, onClose, onSaved })
     quantity: 1,
     my_asking_price: '',
     notes: '',
+    ...prefill,
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)

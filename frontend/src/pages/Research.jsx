@@ -4,6 +4,52 @@ import ResultsPanel from '../components/ResultsPanel'
 import SaveItemModal from '../components/SaveItemModal'
 import './Research.css'
 
+const BARBIE_KEYWORDS = ['barbie', 'skipper', 'midge', 'christie', 'francie', 'ken doll', 'mattel doll']
+const BOARD_GAME_KEYWORDS = ['monopoly', 'clue', 'cluedo', 'scrabble', 'risk', 'sorry', 'battleship',
+  'operation', 'trivial pursuit', 'stratego', 'board game', 'yahtzee', 'boggle', 'parcheesi',
+  'checkers', 'chess', 'connect four', 'mastermind', 'othello', 'backgammon', 'aggravation']
+
+function buildPrefill(query, results) {
+  const q = query.toLowerCase()
+  const bgg = results?.sources?.bgg
+  const stats = results?.stats || {}
+
+  // Category detection
+  let category = ''
+  if (bgg?.found) {
+    category = 'board_game'
+  } else if (BARBIE_KEYWORDS.some(k => q.includes(k))) {
+    category = 'barbie'
+  } else if (BOARD_GAME_KEYWORDS.some(k => q.includes(k))) {
+    category = 'board_game'
+  }
+
+  // Year — prefer BGG's authoritative year, else parse from query string
+  let year = ''
+  if (bgg?.year) {
+    year = bgg.year
+  } else {
+    const m = query.match(/\b(19[0-9]{2}|20[0-2][0-9])\b/)
+    if (m) year = m[1]
+  }
+
+  // Suggested asking price — median is more robust than avg for skewed markets
+  let my_asking_price = ''
+  if (stats.median) {
+    my_asking_price = stats.median.toFixed(2)
+  } else if (stats.avg) {
+    my_asking_price = stats.avg.toFixed(2)
+  }
+
+  // Model number — BGG game ID as a hint for board games
+  let model_number = ''
+  if (bgg?.game_id) {
+    model_number = `BGG-${bgg.game_id}`
+  }
+
+  return { category, year, my_asking_price, model_number }
+}
+
 export default function Research() {
   const [loading, setLoading] = useState(false)
   const [results, setResults] = useState(null)
@@ -185,7 +231,10 @@ export default function Research() {
           {!loading && results && fallbackState?.step !== 'manual' && (
             <ResultsPanel
               results={results}
-              onSaveToInventory={(q, r) => setSaveModal({ query: q, results: r })}
+              onSaveToInventory={(q, r) => {
+                const prefill = buildPrefill(q, r)
+                setSaveModal({ query: q, results: r, prefill })
+              }}
             />
           )}
 

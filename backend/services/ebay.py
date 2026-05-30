@@ -19,6 +19,9 @@ from config import settings
 
 class ScraperBlocked(Exception):
     """eBay triggered bot-detection / rate-limiting on this request."""
+    def __init__(self, msg: str, debug: dict | None = None):
+        super().__init__(msg)
+        self.debug = debug or {}
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +187,23 @@ _EBAY_JS_EXTRACT = """(unsoldOnly) => {
 }"""
 
 
+_EBAY_DIAG_JS = """() => {
+    const s_cards   = document.querySelectorAll('li.s-card').length;
+    const s_items   = document.querySelectorAll('li.s-item').length;
+    const any_li    = document.querySelectorAll('ul.srp-results li').length;
+    const no_res_el = document.querySelector('h3.srp-save-null-search__heading, .srp-save-null-search');
+    return {
+        s_card_count: s_cards,
+        s_item_count: s_items,
+        srp_li_count: any_li,
+        page_title: document.title,
+        final_url: location.href,
+        no_results_element: no_res_el ? no_res_el.innerText.trim().substring(0, 120) : null,
+        body_snippet: document.body.innerText.substring(0, 400),
+    };
+}"""
+
+
 async def _ebay_page(params: dict) -> list[dict]:
     """Load an eBay search page in real Chrome and extract listings from the live DOM."""
     from playwright.async_api import async_playwright
@@ -214,13 +234,13 @@ async def _ebay_page(params: dict) -> list[dict]:
         await asyncio.sleep(6)
         raw = await page.evaluate(_EBAY_JS_EXTRACT, unsold_only)
 
+        # Always capture diagnostics — visible in response even on success
+        diag = await page.evaluate(_EBAY_DIAG_JS)
+        diag["requested_url"] = url
+        diag["extracted_count"] = len(raw)
+
         if not raw:
-            # Distinguish a genuine zero-results page from bot-detection
-            page_title = await page.title()
-            body_snippet = await page.evaluate(
-                "() => document.body.innerText.substring(0, 800)"
-            )
-            combined_text = (page_title + " " + body_snippet).lower()
+            combined_text = (diag["page_title"] + " " + diag["body_snippet"]).lower()
             _BLOCK_SIGNALS = [
                 "robot", "captcha", "verify", "unusual traffic",
                 "security measure", "access denied", "are you a human",
@@ -228,7 +248,7 @@ async def _ebay_page(params: dict) -> list[dict]:
             ]
             if any(sig in combined_text for sig in _BLOCK_SIGNALS):
                 await browser.close()
-                raise ScraperBlocked("eBay bot-detection triggered")
+                raise ScraperBlocked("eBay bot-detection triggered", debug=diag)
 
         await browser.close()
 
@@ -244,6 +264,7 @@ async def _ebay_page(params: dict) -> list[dict]:
             "url": item["url"],
             "image_url": None,
         })
+    results._ebay_diag = diag  # type: ignore[attr-defined]
     return results
 
 

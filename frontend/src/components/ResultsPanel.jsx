@@ -227,7 +227,7 @@ export default function ResultsPanel({ results, onSaveToInventory }) {
           {activeTab === 'ebay' && (
             <div className="tab-content">
               {!hasEbayData ? (
-                <div className="tab-empty">No eBay sold listings found for this search.</div>
+                <EbayDebugPanel debug={sources.ebay_debug} errorStatus={source_errors.ebay} />
               ) : (
                 <>
                   <div className="price-cards">
@@ -674,6 +674,46 @@ function ListingsTable({ listings, cols, typeLabel, initialSort = null }) {
         <button className="btn-ghost show-more" onClick={() => setShowAll(v => !v)}>
           {showAll ? 'Show fewer' : `Show all ${listings.length}`}
         </button>
+      )}
+    </div>
+  )
+}
+
+
+function EbayDebugPanel({ debug, errorStatus }) {
+  const [open, setOpen] = useState(false)
+
+  const statusMsg = errorStatus === 'rate_limited'
+    ? { icon: '⏱', text: 'eBay rate-limited this request. Wait 1–2 minutes and try again.', cls: 'warn' }
+    : { icon: '🔍', text: 'No eBay sold listings found for this search.', cls: 'info' }
+
+  return (
+    <div className="ebay-debug-wrap">
+      <div className={`tab-empty tab-empty-${statusMsg.cls}`}>
+        {statusMsg.icon} {statusMsg.text}
+      </div>
+      {debug && Object.keys(debug).length > 0 && (
+        <div className="ebay-debug-section">
+          <button className="ebay-debug-toggle" onClick={() => setOpen(v => !v)}>
+            {open ? '▾' : '▸'} Scraper diagnostics
+          </button>
+          {open && (
+            <table className="ebay-debug-table">
+              <tbody>
+                {debug.page_title     != null && <tr><td>Page title</td><td>{debug.page_title}</td></tr>}
+                {debug.final_url      != null && <tr><td>Final URL</td><td className="debug-url">{debug.final_url}</td></tr>}
+                {debug.s_card_count   != null && <tr><td><code>li.s-card</code> count</td><td>{debug.s_card_count}</td></tr>}
+                {debug.s_item_count   != null && <tr><td><code>li.s-item</code> count</td><td>{debug.s_item_count}</td></tr>}
+                {debug.srp_li_count   != null && <tr><td>SRP <code>&lt;li&gt;</code> total</td><td>{debug.srp_li_count}</td></tr>}
+                {debug.extracted_count!= null && <tr><td>Listings extracted</td><td>{debug.extracted_count}</td></tr>}
+                {debug.no_results_element && <tr><td>No-results text</td><td>{debug.no_results_element}</td></tr>}
+                {debug.body_snippet   != null && (
+                  <tr><td>Page text (first 400 chars)</td><td className="debug-snippet">{debug.body_snippet}</td></tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
       )}
     </div>
   )

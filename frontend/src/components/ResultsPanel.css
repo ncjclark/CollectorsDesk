@@ -144,6 +144,43 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
+.tab-empty-warn { color: #e6a817; border-color: rgba(250,176,5,0.3); background: rgba(250,176,5,0.06); }
+
+/* ── eBay scraper debug panel ── */
+.ebay-debug-wrap { display: flex; flex-direction: column; gap: 8px; }
+.ebay-debug-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.ebay-debug-toggle {
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: monospace;
+}
+.ebay-debug-toggle:hover { color: var(--text); background: var(--bg-hover); }
+.ebay-debug-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.ebay-debug-table td {
+  padding: 5px 12px;
+  border-top: 1px solid var(--border);
+  vertical-align: top;
+}
+.ebay-debug-table td:first-child {
+  color: var(--text-muted);
+  white-space: nowrap;
+  width: 180px;
+  font-family: monospace;
+}
+.ebay-debug-table td:last-child { color: var(--text); word-break: break-all; }
+.debug-url { font-family: monospace; font-size: 11px; }
+.debug-snippet { white-space: pre-wrap; font-size: 11px; font-family: monospace; color: var(--text-muted); }
 
 /* Source note banner */
 .source-note {

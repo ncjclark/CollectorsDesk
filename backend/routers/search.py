@@ -193,12 +193,21 @@ async def search(req: SearchRequest, db: Session = Depends(get_db)):
         return_exceptions=True,
     )
 
-    # Detect rate-limiting / bot-detection per source
+    # Detect rate-limiting / bot-detection per source; pull diagnostics
     source_errors: dict[str, str] = {}
-    if isinstance(ebay_sold, EbayBlocked) or isinstance(ebay_active, EbayBlocked) or isinstance(ebay_unsold, EbayBlocked):
+    ebay_debug: dict = {}
+
+    if isinstance(ebay_sold, EbayBlocked):
+        source_errors["ebay"] = "rate_limited"
+        ebay_debug = ebay_sold.debug
+    elif isinstance(ebay_active, EbayBlocked) or isinstance(ebay_unsold, EbayBlocked):
         source_errors["ebay"] = "rate_limited"
     elif not isinstance(ebay_sold, list):
         source_errors["ebay"] = "error"
+        ebay_debug = {"exception": str(ebay_sold)}
+    else:
+        ebay_debug = getattr(ebay_sold, "_ebay_diag", {})
+
     if isinstance(etsy_listings, EtsyBlocked):
         source_errors["etsy"] = "rate_limited"
     elif not isinstance(etsy_listings, list):
@@ -248,6 +257,7 @@ async def search(req: SearchRequest, db: Session = Depends(get_db)):
             "avg_watches": round(total_watches / len(ebay_active), 1) if ebay_active else 0,
             "top_watched": top_watched,
         },
+        "ebay_debug": ebay_debug,
     }
 
     last_sold_dt = None

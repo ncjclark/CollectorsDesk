@@ -110,6 +110,7 @@ class BarcodeResponse(BaseModel):
     name: Optional[str] = None
     brand: Optional[str] = None
     description: Optional[str] = None
+    source: Optional[str] = None
 
 
 # ── Import / Export ──────────────────────────────────────────────────────────

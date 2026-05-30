@@ -23,6 +23,32 @@ def _normalize_query(q: str) -> str:
     return " ".join(q.strip().lower().split())
 
 
+_STOP = {
+    'the','a','an','and','or','of','in','on','at','to','for','with','by',
+    'from','as','is','was','are','were','be','been','this','that','it',
+    'its','i','my','your','has','have','had','not','but','so','if',
+}
+
+def _etsy_relevance_filter(listings: list[dict], query: str) -> list[dict]:
+    """Drop Etsy listings whose titles share less than 40% of query keywords."""
+    import re
+    def tokens(text: str) -> set:
+        return {w for w in re.findall(r'[a-z0-9]+', text.lower())
+                if w not in _STOP and len(w) > 2}
+
+    q_tokens = tokens(query)
+    if len(q_tokens) < 2:
+        return listings  # query too short to filter reliably
+
+    result = []
+    for listing in listings:
+        title_tokens = tokens(listing.get('title', ''))
+        overlap = q_tokens & title_tokens
+        if len(overlap) / len(q_tokens) >= 0.4:
+            result.append(listing)
+    return result
+
+
 def _get_cached(db: Session, query: str, ttl_hours: int) -> PriceResearchCache | None:
     cutoff = datetime.utcnow() - timedelta(hours=ttl_hours)
     return (
@@ -173,6 +199,8 @@ async def search(req: SearchRequest, db: Session = Depends(get_db)):
     etsy_listings    = etsy_listings    if isinstance(etsy_listings, list) else []
     heritage_results = heritage_results if isinstance(heritage_results, list) else []
     bgg_result       = bgg_result       if isinstance(bgg_result, dict) else {}
+
+    etsy_listings = _etsy_relevance_filter(etsy_listings, normalized)
 
     ebay_stats = compute_price_stats(ebay_sold, req.days_back)
     etsy_stats = compute_etsy_stats(etsy_listings)

@@ -4,6 +4,11 @@ import ResultsPanel from '../components/ResultsPanel'
 import SaveItemModal from '../components/SaveItemModal'
 import './Research.css'
 
+const SOURCE_LABELS = {
+  upcitemdb: 'UPCitemDB',
+  openfoodfacts: 'Open Food Facts',
+}
+
 const BARBIE_KEYWORDS = ['barbie', 'skipper', 'midge', 'christie', 'francie', 'ken doll', 'mattel doll']
 const BOARD_GAME_KEYWORDS = ['monopoly', 'clue', 'cluedo', 'scrabble', 'risk', 'sorry', 'battleship',
   'operation', 'trivial pursuit', 'stratego', 'board game', 'yahtzee', 'boggle', 'parcheesi',
@@ -60,6 +65,7 @@ export default function Research() {
   const [barcode, setBarcode] = useState('')
   const [barcodeLoading, setBarcodeLoading] = useState(false)
   const [barcodeError, setBarcodeError] = useState(null)
+  const [barcodeSource, setBarcodeSource] = useState(null) // { name, source }
   const [manualPrice, setManualPrice] = useState({ note: '', price: '' })
   const barcodeRef = useRef(null)
 
@@ -71,7 +77,10 @@ export default function Research() {
   async function handleSearch(params, isFallback = false) {
     setLoading(true)
     setError(null)
-    if (!isFallback) setFallbackState(null)
+    if (!isFallback) {
+      setFallbackState(null)
+      setBarcodeSource(null)
+    }
 
     try {
       const resp = await fetch('/api/search', {
@@ -121,8 +130,8 @@ export default function Research() {
       const data = await resp.json()
       if (data.found && data.name) {
         setBarcode('')
+        setBarcodeSource({ name: data.name, source: data.source })
         handleSearch({ query: data.name, category: null, days_back: 90 })
-        showToast(`Barcode identified: "${data.name}"`)
       } else {
         setBarcodeError('Barcode not found in database. Try searching by name.')
       }
@@ -171,6 +180,15 @@ export default function Research() {
             </div>
             {barcodeError && <span className="barcode-error">{barcodeError}</span>}
           </div>
+          {barcodeSource && (
+            <div className="barcode-source-row">
+              <span className="barcode-source-label">Identified as</span>
+              <span className="barcode-source-name">"{barcodeSource.name}"</span>
+              <span className="barcode-source-via">
+                via {SOURCE_LABELS[barcodeSource.source] || barcodeSource.source}
+              </span>
+            </div>
+          )}
 
           {loading && (
             <div className="search-loading">

@@ -62,6 +62,7 @@ export default function Research() {
   const [saveModal, setSaveModal] = useState(null)
   const [toast, setToast] = useState(null)
   const [fallbackState, setFallbackState] = useState(null) // {step, originalQuery}
+  const [lastSearchParams, setLastSearchParams] = useState(null)
   const [barcode, setBarcode] = useState('')
   const [barcodeLoading, setBarcodeLoading] = useState(false)
   const [barcodeError, setBarcodeError] = useState(null)
@@ -83,10 +84,11 @@ export default function Research() {
     }
 
     try {
+      if (!isFallback) setLastSearchParams(params)
       const resp = await fetch('/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params),
+        body: JSON.stringify({ days_back: 90, ...params }),
       })
       if (!resp.ok) throw new Error(`Search failed: ${resp.status}`)
       const data = await resp.json()
@@ -253,6 +255,9 @@ export default function Research() {
                 const prefill = buildPrefill(q, r)
                 setSaveModal({ query: q, results: r, prefill })
               }}
+              onForceRefresh={lastSearchParams
+                ? () => handleSearch({ ...lastSearchParams, force_refresh: true })
+                : null}
             />
           )}
 

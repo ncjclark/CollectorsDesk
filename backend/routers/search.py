@@ -23,6 +23,33 @@ def _normalize_query(q: str) -> str:
     return " ".join(q.strip().lower().split())
 
 
+def _clean_query_for_search(q: str) -> str:
+    """
+    Strip barcode-name noise that confuses eBay:
+    - Text inside parentheses, e.g. "(angel of peace)" → "angel of peace"
+    - "by: brand" / "by brand" attribution fragments
+    - Edition/series suffixes that aren't searchable keywords
+    - Excessive punctuation: dashes, colons, slashes used as separators
+    - Truncate to 80 chars so eBay doesn't reject the query
+    """
+    import re
+    q = q.strip()
+    # Unwrap parentheses — keep the content, drop the parens
+    q = re.sub(r'\(([^)]*)\)', r' \1 ', q)
+    # Remove "by: something" or "by something" attribution at end
+    q = re.sub(r'\bby\s*:?\s*\w[\w\s]*$', '', q, flags=re.IGNORECASE)
+    # Remove standalone punctuation used as separators
+    q = re.sub(r'\s[-–—/|]\s', ' ', q)
+    # Remove remaining colons and excessive punctuation
+    q = re.sub(r'[:\'"#&]', ' ', q)
+    # Collapse whitespace
+    q = ' '.join(q.split())
+    # Truncate to ~80 chars at a word boundary
+    if len(q) > 80:
+        q = q[:80].rsplit(' ', 1)[0]
+    return q.strip()
+
+
 _STOP = {
     'the','a','an','and','or','of','in','on','at','to','for','with','by',
     'from','as','is','was','are','were','be','been','this','that','it',
@@ -170,11 +197,17 @@ def _build_combined(record: PriceResearchCache, sources: dict) -> dict:
 @router.post("")
 async def search(req: SearchRequest, db: Session = Depends(get_db)):
     normalized = _normalize_query(req.query)
+    # Also clean the query to remove barcode-name noise before searching
+    search_query = _clean_query_for_search(normalized)
 
-    cached = _get_cached(db, normalized, ttl_hours=24)
-    if cached:
-        _log_history(db, normalized, req.category, cached.sold_count_90d or 0, cached.avg_sold_price)
-        return _build_response(cached, from_cache=True)
+    if not req.force_refresh:
+        cached = _get_cached(db, search_query, ttl_hours=24)
+        if cached:
+            _log_history(db, search_query, req.category, cached.sold_count_90d or 0, cached.avg_sold_price)
+            return _build_response(cached, from_cache=True)
+
+    # Use cleaned query for all downstream API/scraper calls
+    normalized = search_query
 
     import config as cfg
 

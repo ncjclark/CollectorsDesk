@@ -81,7 +81,7 @@ const TYPE_LABELS = {
   auction_realized: 'Auction realized',
 }
 
-export default function ResultsPanel({ results, onSaveToInventory }) {
+export default function ResultsPanel({ results, onSaveToInventory, onForceRefresh }) {
   const [activeTab, setActiveTab] = useState('ebay')
 
   if (!results) return null
@@ -127,9 +127,18 @@ export default function ResultsPanel({ results, onSaveToInventory }) {
       <div className="results-header">
         <div className="results-title">
           <span className="results-query">"{query}"</span>
-          {from_cache
-            ? <span className="cache-badge">cached {timeAgo(fetched_at)}</span>
-            : <span className="live-badge">live</span>}
+          {from_cache ? (
+            <>
+              <span className="cache-badge">cached {timeAgo(fetched_at)}</span>
+              {onForceRefresh && (
+                <button className="refresh-btn" onClick={onForceRefresh} title="Bypass cache and fetch live data">
+                  ↺ refresh
+                </button>
+              )}
+            </>
+          ) : (
+            <span className="live-badge">live</span>
+          )}
         </div>
         {anyData && (
           <button className="btn-primary save-btn" onClick={() => onSaveToInventory(query, results)}>

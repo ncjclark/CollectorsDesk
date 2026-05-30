@@ -67,6 +67,7 @@ class SearchRequest(BaseModel):
     query: str
     category: Optional[str] = None   # barbie | board_game | None = both
     days_back: int = 90
+    force_refresh: bool = False
 
 
 class SoldListing(BaseModel):
